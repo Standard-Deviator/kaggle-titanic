@@ -1,0 +1,324 @@
+---
+title: 'Titanic - Machine Learning from Disaster'
+subtitle: 'Kaggle Competition'
+author: "ML Support Group: Cohort 1"
+date: "2023-06-25"
+output:
+  rmdformats::readthedown:
+    toc_depth: 5
+    code_folding: hide
+    self_contained: true
+    thumbnails: false
+    lightbox: true
+    gallery: true
+    highlight: tango
+    css: custom.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+
+# Project Motivation
+
+I want to practice using machine learning algorithms to improve my model predictions. Here are some usefule resources.
+
+  * Using R for machine learning [https://tensorflow.rstudio.com/](https://tensorflow.rstudio.com/)
+  * Kaggle Data Competition `r htmltools::span(id="kaggle",fontawesome::fa("kaggle"))`   
+    * A well structured machine learning problem with data [https://www.kaggle.com/competitions/titanic/overview](https://www.kaggle.com/competitions/titanic/overview)  
+  * Tidymodels collection of packages  
+    * [https://www.tidymodels.org/learn/](https://www.tidymodels.org/learn/)  
+  * Keras Cheat Sheet
+    * [https://rstudio.github.io/cheatsheets/html/keras.html](https://rstudio.github.io/cheatsheets/html/keras.html)
+    
+# Load Libraries and Import Data  
+
+```{r load_libraries}
+# load libraries
+library(tensorflow)   # machine leaning
+library(keras)        # machine leaning
+library(tidyverse)    # data import/cleaning/inspection
+library(tidymodels)   # model building
+library(here)         # relative file paths
+library(naniar)       # missing data plot
+library(DT)           # datatables for interactive tables
+library(mice)         # missing data imputation
+```
+
+```{r import_data}
+# import data
+training_data <- read_csv(file = here("data",
+                                      "kaggle",
+                                      "titanic",
+                                      "train.csv")) 
+```
+
+## Data Cleaning
+
+### Inspect Variables {.tabset .tabset-pills}
+
+#### `PassengerId`
+
+There are `r dplyr::n_distinct(training_data$PassengerId)` unique passenger IDs. Given the arbitrary nature of the IDs, they will be omitted from the model.
+
+#### `Survived`
+
+Survival of the passenger where 0 = No and 1 = Yes.
+
+```{r}
+# get counts of survival
+training_data %>% 
+  count(Survived) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+#### `Pclass`
+
+Ticket class 	1 = 1st, 2 = 2nd, 3 = 3rd
+
+```{r}
+# get counts of passenger class
+training_data %>% 
+  count(Pclass) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+#### `Name`
+
+There are `r dplyr::n_distinct(training_data$Name)` unique passenger names. Given the arbitrary nature of the names, they will be omitted from the model. However, we might be able to improve the accuracy of the model if we could cluster/group the data based upon familial connections (i.e., children with parents on board when the parents survived)
+
+#### `Sex`
+
+```{r}
+# get counts of "Sex"
+training_data %>% 
+  count(Sex) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+
+#### `Age`
+
+```{r}
+# create histogram of age
+training_data %>% 
+  ggplot(aes(x = Age)) +
+  geom_histogram(bins = 15, fill = "#9F2042", color = "#404040")
+```
+
+#### `SibSp`
+
+Number of siblings / spouses aboard the Titanic
+
+```{r}
+# get count of sibling/spouses onboard
+training_data %>% 
+  count(SibSp) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+#### `Parch`
+
+Number of parents / children aboard the Titanic
+
+```{r}
+# get count of sibling/spouses onboard
+training_data %>% 
+  count(Parch) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+#### `Ticket`
+
+```{r}
+# get count Tickets
+training_data %>% 
+  count(Ticket) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+#### `Fare`
+
+```{r}
+# create histogram for Fare
+training_data %>% 
+  ggplot(aes(x = Fare)) +
+  geom_histogram(bins = 15, fill = "#9F2042", color = "#404040")
+```
+
+#### `Cabin`
+
+```{r}
+# Get count of Cabin number
+training_data %>% 
+  count(Cabin) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+These can be cleaned up to show `Cabin` by section.
+
+```{r}
+training_data %>% 
+  mutate(Cabin_letter = str_sub(Cabin, start = 1, end = 1)) %>% 
+  count(Cabin_letter) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+Perhaps we can predict the `Cabin` letter using the fare price or class.
+
+```{r}
+training_data %>% 
+  mutate(Cabin_letter = str_sub(Cabin, start = 1, end = 1)) %>% 
+  ggplot(aes(y = Fare, x = Cabin_letter, color = as.factor(Pclass))) +
+  geom_point() +
+  facet_grid(~Pclass) +
+  labs(color = "Passenger Class")
+```
+
+
+
+#### `Embarked`
+
+```{r}
+# get count of point of embarkment
+training_data %>% 
+  count(Embarked) %>% 
+  datatable(rownames = FALSE,
+            options = list(dom = "tp"))
+```
+
+## Missingness
+
+There were 529 passengers missing data only about their `Cabin`.
+There were 19 passengers missing data only about their `age`.
+There were 2 passengers missing data only about their `embarkment`.
+There were 158 passsengers missing data for both their `Cabin` and their `age'.
+
+I suggest that the Cabin variable be removed. The only other option to salvage any data would be to use the `Pclass` data to impute possible values for the `Cabin`. But I think that "borrowing" this information
+
+
+```{r check_missing}
+naniar::gg_miss_upset(training_data, nsets = 3)
+```
+
+## Multiple Imputation
+
+```{r}
+training_data <- training_data %>% 
+  mutate(cabin_letter = str_sub(Cabin, start = 1, end = 1),
+         cabin_number = parse_number(Cabin),
+         cabin_letter = match(cabin_letter,LETTERS )
+         ) %>% 
+  select(-Cabin)
+
+initial_data <- mice(training_data,maxit = 0)
+meth <- initial_data$method
+
+meth[c("cabin_letter")] <- "polyreg"
+predM <- initial_data$predictrMatrix
+
+set.seed(7272)
+imputed = mice(training_data,
+               method=meth,
+               predictorMatrix=predM,
+               m=5)
+```
+
+
+## Prep Data for Model
+
+```{r drop_na_and_problem_vars}
+# remove unneeded character data and IDs
+# remove rows with missing data (for now)
+training_data_complete <- training_data %>%
+  select(-Name,-PassengerId,-Ticket,-Cabin,-Embarked) %>% 
+  drop_na()
+
+dataset <- recipe(Survived ~ ., training_data_complete) %>%
+  step_dummy(Sex, one_hot = TRUE) %>% 
+  step_scale()
+
+prep(dataset,
+     verbose=TRUE)
+
+dataset <- dataset %>% 
+  prep() %>%
+  bake(new_data = NULL)
+```
+
+```{r}
+# create initial partition of train/test data using the imported training data from Kaggle
+split <- initial_split(dataset, 0.8)
+train_dataset <- training(split)
+test_dataset <- testing(split)
+```
+
+```{r}
+dataset %>%
+  GGally::ggpairs()
+```
+
+```{r}
+train_features <- train_dataset %>% select(-Survived)
+test_features <- test_dataset %>% select(-Survived)
+
+train_labels <- train_dataset %>% select(Survived)
+test_labels <- test_dataset %>% select(Survived)
+```
+
+```{r}
+normalizer <- layer_normalization(axis = -1L)
+
+normalizer %>% adapt(as.matrix(train_features))
+```
+
+```{r}
+linear_model <- keras_model_sequential() %>%
+  normalizer() %>%
+  layer_dense(64, activation = 'relu') %>%
+  layer_dense(64, activation = 'relu') %>%
+  layer_dense(units = 1)
+
+predict(linear_model, as.matrix(train_features[1:10, ]))
+
+linear_model %>% compile(
+  optimizer = optimizer_adam(learning_rate = 0.05,),
+  loss = loss_binary_crossentropy(from_logits = TRUE),
+  metrics = list(metric_binary_accuracy(threshold = 0))
+)
+
+history <- linear_model %>% fit(
+  as.matrix(train_features),
+  as.matrix(train_labels),
+  epochs = 100,
+  # Suppress logging.
+  verbose = 1,
+  # Calculate validation results on 20% of the training data.
+  validation_split = 0.2
+)
+
+results <- linear_model %>%
+  evaluate(
+    as.matrix(test_features),
+    as.matrix(test_labels),
+    verbose = 0
+  )
+
+results
+
+plot(history)
+```
+
+## Oversampling Techniques
+
+No resampling
+up-sampling
+down-sampling
+SMOTE
+
