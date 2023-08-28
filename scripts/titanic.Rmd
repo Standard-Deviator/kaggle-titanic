@@ -13,6 +13,8 @@ output:
     gallery: true
     highlight: tango
     css: custom.css
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -213,22 +215,87 @@ naniar::gg_miss_upset(training_data, nsets = 3)
 training_data <- training_data %>% 
   mutate(cabin_letter = str_sub(Cabin, start = 1, end = 1),
          cabin_number = parse_number(Cabin),
-         cabin_letter = match(cabin_letter,LETTERS )
+         cabin_letter = match(cabin_letter,LETTERS ),
+         cabin_letter = as.double(cabin_letter)
          ) %>% 
   select(-Cabin)
+
 
 initial_data <- mice(training_data,maxit = 0)
 meth <- initial_data$method
 
-meth[c("cabin_letter")] <- "polyreg"
-predM <- initial_data$predictrMatrix
+meth[c("Embarked")] <- "polyreg"
+predM <- initial_data$predictorMatrix
+
 
 set.seed(7272)
-imputed = mice(training_data,
-               method=meth,
-               predictorMatrix=predM,
-               m=5)
+imputed <- mice(training_data,
+                method = meth,
+                predictorMatrix = predM,
+                m = 5)
+
+
+
+training_data_imputed <- complete(imputed) |> as_tibble()
+
+# Checking completed data
+# library(summarytools)
+# complete(imputed) |> as_tibble() |> dfSummary() 
+
+training_data |> count(cabin_letter) |> 
+  left_join(complete(imputed) |> count(cabin_letter) |> rename(n_imputed = n))
+
+
 ```
+
+## Baseline Model
+```{r}
+# Original Data
+training_data_baseline <- training_data |> select(-Name, -Ticket, -PassengerId) 
+
+baseline_model <- glm(Survived ~ .,
+                      data = training_data_baseline,
+                      family = "binomial")
+
+baseline_model |> summary()
+
+baseline_model |> predict()
+
+baseline_model$fitted.values |> hist()
+
+training_data_baseline |> 
+  drop_na() |> 
+  mutate( predicted_survive = ifelse(baseline_model$fitted.values > .5 , 1, 0),
+          diff_prediction = predicted_survive - Survived) |>
+  count(Survived, predicted_survive)
+  # filter(diff_prediction != 0)
+  # count(diff_prediction)
+
+141/179
+
+# Imputed Data
+training_data_imputed_baseline <- training_data_imputed |> 
+  select(-Name, -Ticket, -PassengerId) 
+
+baseline_imputed_model <- glm(Survived ~ .,
+                              data = training_data_imputed_baseline,
+                              family = "binomial")
+
+baseline_imputed_model 
+
+baseline_imputed_model$fitted.values |> length()
+
+training_data_imputed_baseline |> 
+  drop_na() |> 
+  mutate( predicted_survive = ifelse(baseline_imputed_model$fitted.values > .5 , 1, 0),
+          diff_prediction = predicted_survive - Survived) |>
+  # count(diff_prediction)
+  count(Survived, predicted_survive)
+
+715/889
+# 3% increase after imputing data
+```
+
 
 
 ## Prep Data for Model
